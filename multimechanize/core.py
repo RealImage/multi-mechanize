@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import time
+from collections import OrderedDict
 
 from multimechanize.script_loader import ScriptLoader
 import os.path
@@ -96,27 +97,32 @@ class Agent(threading.Thread):
     def run(self):
         elapsed = 0
         trans = self.script_module.Transaction()
-        trans.custom_timers = {}
 
         # scripts have access to these vars, which can be useful for loading unique data
         trans.thread_num = self.thread_num
         trans.process_num = self.process_num
-
         while elapsed < self.run_time:
+            trans.custom_timers = OrderedDict()
             error = ''
             start = self.default_timer()
-
             try:
+                epoch = time.mktime(time.localtime())
                 trans.run()
             except Exception, e:  # test runner catches all script exceptions here
-                error = str(e).replace(',', '')
+                error = str(e).replace(',', '').replace('{', '[').replace('}', ']')
+                #code for finding errors count for each custom timers
+                temp = trans.custom_timers.keys()
+                if temp:
+                    trans.custom_timers.update({'Error':temp[-1]})
 
             finish = self.default_timer()
 
             scriptrun_time = finish - start
             elapsed = time.time() - self.start_time
 
-            epoch = time.mktime(time.localtime())
+
+            #converting OrderedDict to dict
+            trans.custom_timers = dict(trans.custom_timers)
 
             fields = (elapsed, epoch, self.user_group_name, scriptrun_time, error, trans.custom_timers)
             self.queue.put(fields)

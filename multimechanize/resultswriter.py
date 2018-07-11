@@ -8,7 +8,6 @@
 
 
 import os
-import sys
 import Queue
 import threading
 import time
@@ -34,6 +33,8 @@ class ResultsWriter(threading.Thread):
 
     def run(self):
         with open(self.output_dir + 'results.csv', 'w') as f:
+            f.write('%s,%s,%s,%s,%s,%s,%s\n' % ("Tranaction Count", "Elapsed Time", "Epoch Time", "User Group Name", "Script Run Time", "Error", "Custome Timers"))
+            f.flush()
             while True:
                 try:
                     elapsed, epoch, self.user_group_name, scriptrun_time, error, custom_timers = self.queue.get(False)

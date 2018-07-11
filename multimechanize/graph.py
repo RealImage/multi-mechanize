@@ -20,7 +20,7 @@ except ImportError:
 
 # response time graph for raw data
 def resp_graph_raw(nested_resp_list, image_name, dir='./'):
-    fig = figure(figsize=(8, 3.3))  # image dimensions
+    fig = figure(figsize=(8, 4))  # image dimensions
     ax = fig.add_subplot(111)
     ax.set_xlabel('Elapsed Time In Test (secs)', size='x-small')
     ax.set_ylabel('Response Time (secs)' , size='x-small')
@@ -34,12 +34,13 @@ def resp_graph_raw(nested_resp_list, image_name, dir='./'):
         markeredgecolor='blue', markerfacecolor='blue', markersize=2.0)
     ax.plot([0.0,], [0.0,], linewidth=0.0, markersize=0.0)
     savefig(dir + image_name)
+    close()
 
 
 
 # response time graph for bucketed data
 def resp_graph(avg_resptime_points_dict, percentile_80_resptime_points_dict, percentile_90_resptime_points_dict, image_name, dir='./'):
-    fig = figure(figsize=(8, 3.3))  # image dimensions
+    fig = figure(figsize=(8, 4))  # image dimensions
     ax = fig.add_subplot(111)
     ax.set_xlabel('Elapsed Time In Test (secs)', size='x-small')
     ax.set_ylabel('Response Time (secs)' , size='x-small')
@@ -78,12 +79,13 @@ def resp_graph(avg_resptime_points_dict, percentile_80_resptime_points_dict, per
             )
 
     savefig(dir + image_name)
+    close()
 
 
 
 # throughput graph
 def tp_graph(throughputs_dict, image_name, dir='./'):
-    fig = figure(figsize=(8, 3.3))  # image dimensions
+    fig = figure(figsize=(8, 4))  # image dimensions
     ax = fig.add_subplot(111)
     ax.set_xlabel('Elapsed Time In Test (secs)', size='x-small')
     ax.set_ylabel('Transactions Per Second (count)' , size='x-small')
@@ -97,3 +99,4 @@ def tp_graph(throughputs_dict, image_name, dir='./'):
         markeredgecolor='red', markerfacecolor='yellow', markersize=2.0)
     ax.plot([0.0,], [0.0,], linewidth=0.0, markersize=0.0)
     savefig(dir + image_name)
+    close()

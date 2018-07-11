@@ -12,7 +12,7 @@ from collections import defaultdict
 import graph
 import reportwriter
 import reportwriterxml
-
+import ast
 
 
 def output_results(results_dir, results_file, run_time, rampup, ts_interval, user_group_configs=None, xml_reports=False):
@@ -58,17 +58,20 @@ def output_results(results_dir, results_file, run_time, rampup, ts_interval, use
     # all transactions - response times
     trans_timer_points = []  # [elapsed, timervalue]
     trans_timer_vals = []
+    interval_details_vals = []#list with error details
     for resp_stats in results.resp_stats_list:
         t = (resp_stats.elapsed_time, resp_stats.trans_time)
+        interval_details_vals.append((resp_stats.elapsed_time, resp_stats.trans_time, resp_stats.error))
         trans_timer_points.append(t)
         trans_timer_vals.append(resp_stats.trans_time)
     graph.resp_graph_raw(trans_timer_points, 'All_Transactions_response_times.png', results_dir)
 
     report.write_line('<h3>Transaction Response Summary (secs)</h3>')
     report.write_line('<table>')
-    report.write_line('<tr><th>count</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
-    report.write_line('<tr><td>%i</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>'  % (
+    report.write_line('<tr><th>count</th><th><font color="red"><b>errors</b></font></th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
+    report.write_line('<tr><td>%i</td><td><font color="red"><b>%i</b></font></td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>'  % (
         results.total_transactions,
+        results.total_errors,
         min(trans_timer_vals),
         average(trans_timer_vals),
         percentile(trans_timer_vals, 80),
@@ -85,26 +88,32 @@ def output_results(results_dir, results_file, run_time, rampup, ts_interval, use
     percentile_80_resptime_points = {}  # {intervalnumber: 80pct_resptime}
     percentile_90_resptime_points = {}  # {intervalnumber: 90pct_resptime}
     interval_secs = ts_interval
-    splat_series = split_series(trans_timer_points, interval_secs)
+
+    #splat_series = split_series(trans_timer_points, interval_secs)
+    splat_series = split_intervals_series(interval_details_vals, interval_secs)
     report.write_line('<h3>Interval Details (secs)</h3>')
     report.write_line('<table>')
-    report.write_line('<tr><th>interval</th><th>count</th><th>rate</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
+    report.write_line('<tr><th>interval</th><th>count</th><th><font color="red"><b>errors</b></font></th><th>rate</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
     for i, bucket in enumerate(splat_series):
         interval_start = int((i + 1) * interval_secs)
         cnt = len(bucket)
-
+        errors_cnt = 0
+        seq = [x for x,_ in bucket]
+        for item in bucket:
+            if item[1] != '':
+                errors_cnt += 1
         if cnt == 0:
-            report.write_line('<tr><td>%i</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>' % (i + 1))
+            report.write_line('<tr><td>%i</td><td>0</td><td><font color="red"><b>0</b></font></td><td>0</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>' % (i + 1))
         else:
             rate = cnt / float(interval_secs)
-            mn = min(bucket)
-            avg = average(bucket)
-            pct_80 = percentile(bucket, 80)
-            pct_90 = percentile(bucket, 90)
-            pct_95 = percentile(bucket, 95)
-            mx = max(bucket)
-            stdev = standard_dev(bucket)
-            report.write_line('<tr><td>%i</td><td>%i</td><td>%.2f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>' % (i + 1, cnt, rate, mn, avg, pct_80, pct_90, pct_95, mx, stdev))
+            mn = min(seq)
+            avg = average(seq)
+            pct_80 = percentile(seq, 80)
+            pct_90 = percentile(seq, 90)
+            pct_95 = percentile(seq, 95)
+            mx = max(seq)
+            stdev = standard_dev(seq)
+            report.write_line('<tr><td>%i</td><td>%i</td><td><font color="red"><b>%i</b></font></td><td>%.2f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>' % (i + 1, cnt, errors_cnt, rate, mn, avg, pct_80, pct_90, pct_95, mx, stdev))
 
             avg_resptime_points[interval_start] = avg
             percentile_80_resptime_points[interval_start] = pct_80
@@ -133,20 +142,25 @@ def output_results(results_dir, results_file, run_time, rampup, ts_interval, use
     graph.tp_graph(throughput_points, 'All_Transactions_throughput.png', results_dir)
 
 
-
     # custom timers
     for timer_name in sorted(results.uniq_timer_names):
         custom_timer_vals = []
         custom_timer_points = []
+        custom_timer_points_with_error = []
+        errors_cnt = 0
         for resp_stats in results.resp_stats_list:
+            err = ''
+            if timer_name in resp_stats.custom_timers.values():
+                err = 'Failed'
+                errors_cnt += 1
             try:
                 val = resp_stats.custom_timers[timer_name]
                 custom_timer_points.append((resp_stats.elapsed_time, val))
+                custom_timer_points_with_error.append((resp_stats.elapsed_time, val, err))
                 custom_timer_vals.append(val)
             except KeyError:
                 pass
         graph.resp_graph_raw(custom_timer_points, timer_name + '_response_times.png', results_dir)
-
         throughput_points = {}  # {intervalnumber: numberofrequests}
         interval_secs = ts_interval
         splat_series = split_series(custom_timer_points, interval_secs)
@@ -160,9 +174,10 @@ def output_results(results_dir, results_file, run_time, rampup, ts_interval, use
         report.write_line('<h3>Timer Summary (secs)</h3>')
 
         report.write_line('<table>')
-        report.write_line('<tr><th>count</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
-        report.write_line('<tr><td>%i</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>'  % (
+        report.write_line('<tr><th>count</th><th><font color="red"><b>errors</b></font></th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
+        report.write_line('<tr><td>%i</td><td><font color="red"><b>%i</b></font></td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>'  % (
             len(custom_timer_vals),
+            errors_cnt,
             min(custom_timer_vals),
             average(custom_timer_vals),
             percentile(custom_timer_vals, 80),
@@ -179,27 +194,33 @@ def output_results(results_dir, results_file, run_time, rampup, ts_interval, use
         percentile_80_resptime_points = {}  # {intervalnumber: 80pct_resptime}
         percentile_90_resptime_points = {}  # {intervalnumber: 90pct_resptime}
         interval_secs = ts_interval
-        splat_series = split_series(custom_timer_points, interval_secs)
+        #splat_series = split_series(custom_timer_points, interval_secs)
+        splat_series = split_intervals_series(custom_timer_points_with_error, interval_secs)
         report.write_line('<h3>Interval Details (secs)</h3>')
         report.write_line('<table>')
-        report.write_line('<tr><th>interval</th><th>count</th><th>rate</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
+        report.write_line('<tr><th>interval</th><th>count</th><th><font color="red"><b>errors</b></font></th><th>rate</th><th>min</th><th>avg</th><th>80pct</th><th>90pct</th><th>95pct</th><th>max</th><th>stdev</th></tr>')
         for i, bucket in enumerate(splat_series):
             interval_start = int((i + 1) * interval_secs)
             cnt = len(bucket)
+            errors_cnt = 0
+            seq = [x for x,_ in bucket]
+            for item in bucket:
+                if item[1] != '':
+                    errors_cnt += 1
 
             if cnt == 0:
-                report.write_line('<tr><td>%i</td><td>0</td><td>0</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>' % (i + 1))
+                report.write_line('<tr><td>%i</td><td>0</td><td><font color="red"><b>0</b></font></td><td>0</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td><td>N/A</td></tr>' % (i + 1))
             else:
                 rate = cnt / float(interval_secs)
-                mn = min(bucket)
-                avg = average(bucket)
-                pct_80 = percentile(bucket, 80)
-                pct_90 = percentile(bucket, 90)
-                pct_95 = percentile(bucket, 95)
-                mx = max(bucket)
-                stdev = standard_dev(bucket)
+                mn = min(seq)
+                avg = average(seq)
+                pct_80 = percentile(seq, 80)
+                pct_90 = percentile(seq, 90)
+                pct_95 = percentile(seq, 95)
+                mx = max(seq)
+                stdev = standard_dev(seq)
 
-                report.write_line('<tr><td>%i</td><td>%i</td><td>%.2f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>' % (i + 1, cnt, rate, mn, avg, pct_80, pct_90, pct_95, mx, stdev))
+                report.write_line('<tr><td>%i</td><td>%i</td><td><font color="red"><b>%i</b></font></td><td>%.2f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td><td>%.3f</td></tr>' % (i + 1, cnt, errors_cnt, rate, mn, avg, pct_80, pct_90, pct_95, mx, stdev))
 
                 avg_resptime_points[interval_start] = avg
                 percentile_80_resptime_points[interval_start] = pct_80
@@ -260,9 +281,9 @@ class Results(object):
     def __parse_file(self):
         f = open(self.results_file_name, 'rb')
         resp_stats_list = []
+        f.readline()
         for line in f:
             fields = line.strip().split(',')
-
             request_num = int(fields[0])
             elapsed_time = float(fields[1])
             epoch_secs = int(fields[2])
@@ -273,24 +294,30 @@ class Results(object):
             self.uniq_user_group_names.add(user_group_name)
 
             custom_timers = {}
-            timers_string = ''.join(fields[6:]).replace('{', '').replace('}', '')
-            splat = timers_string.split("'")[1:]
-            timers = []
-            vals = []
-            for x in splat:
-                if ':' in x:
-                    x = float(x.replace(': ', ''))
-                    vals.append(x)
-                else:
-                    timers.append(x)
-                    self.uniq_timer_names.add(x)
-            for timer, val in zip(timers, vals):
-                custom_timers[timer] = val
+            # timers_string = ''.join(fields[6:]).replace('{', '').replace('}', '')
+            # splat = timers_string.split("'")[1:]
+            # timers = []
+            # vals = []
+            # for x in splat:
+            #     if ':' in x:
+            #         x = float(x.replace(': ', ''))
+            #         vals.append(x)
+            #     else:
+            #         timers.append(x)
+            #         self.uniq_timer_names.add(x)
+            # for timer, val in zip(timers, vals):
+            #     custom_timers[timer] = val
+
+            #Code for finding errors count for each custom timers
+            custom_timers = ast.literal_eval(line[line.find('{'):])
+            uniq_timer_names = custom_timers.keys()
+            if 'Error' in uniq_timer_names: uniq_timer_names.remove('Error')
+            self.uniq_timer_names = self.uniq_timer_names.union(uniq_timer_names)
 
             r = ResponseStats(request_num, elapsed_time, epoch_secs, user_group_name, trans_time, error, custom_timers)
 
-            if elapsed_time < self.run_time:  # drop all times that appear after the last request was sent (incomplete interval)
-                resp_stats_list.append(r)
+            #if elapsed_time < self.run_time:  # drop all times that appear after the last request was sent (incomplete interval)
+            resp_stats_list.append(r)
 
             if error != '':
                 self.total_errors += 1
@@ -322,6 +349,15 @@ def split_series(points, interval):
     series = [vals[i] for i in xrange(maxval + 1)]
     return series
 
+#this def written specifically to find the err cnt of each cusom timers.
+def split_intervals_series(points, interval):
+    offset = points[0][0]
+    maxval = int((points[-1][0] - offset) // interval)
+    vals = defaultdict(list)
+    for valueTuple in points:
+        vals[(valueTuple[0] - offset) // interval].append(valueTuple[1:])
+    series = [vals[i] for i in xrange(maxval + 1)]
+    return series
 
 
 def average(seq):
